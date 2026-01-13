@@ -58,5 +58,3 @@ initMaze(): Genera laberintos aleatorios asegurando que la meta sea alcanzable.
 
 gameLoop(): El motor que coordina los turnos de todos los robots activos.
 
-¿Te gustaría que añada una sección sobre cómo personalizar las recompensas de la IA o cómo instalarlo localmente?
-
