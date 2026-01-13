@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot Swarm: Localizador y Clasificación</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Quicksand', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+        }
+        .maze-grid {
+            display: grid;
+            background: #1e293b;
+            border: 4px solid #334155;
+            border-radius: 1rem;
+            position: relative; 
+            overflow: visible;
+        }
+        .cell {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        .wall {
+            background: #475569;
+            border-radius: 4px;
+            margin: 2px;
+            transition: all 0.3s ease;
+        }
+        .remembered {
+            background-color: rgba(59, 130, 246, 0.2) !important;
+        }
+        .robot {
+            font-size: 20px;
+            position: absolute;
+            z-index: 30;
+            transition: all 0.1s linear;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+        }
+        .skill-tag {
+            position: absolute;
+            top: -12px;
+            font-size: 8px;
+            background: rgba(0,0,0,0.85);
+            padding: 1px 5px;
+            border-radius: 4px;
+            color: white;
+            white-space: nowrap;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .aerial-view {
+            width: 150px;
+            height: 150px;
+            background: #020617;
+            border: 2px solid #3b82f6;
+            display: grid;
+            gap: 1px;
+        }
+        .aerial-pixel {
+            width: 100%;
+            height: 100%;
+        }
+        .robot-body {
+            filter: drop-shadow(0 0 5px rgba(255,255,255,0.3));
+        }
+        .pos-row, .rank-row {
+            border-bottom: 1px solid #334155;
+            padding: 6px 0;
+            display: grid;
+            font-size: 11px;
+            align-items: center;
+        }
+        .pos-row { grid-template-columns: 1fr 1fr 1.5fr; }
+        .rank-row { grid-template-columns: 30px 1fr 80px; }
+        
+        .gold { color: #fbbf24; }
+        .silver { color: #cbd5e1; }
+        .bronze { color: #d97706; }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-6">
+
+    <div class="max-w-[1600px] mx-auto">
+        <header class="flex flex-col md:flex-row justify-between items-center mb-6 bg-slate-800 p-5 rounded-3xl border-b-4 border-blue-500 gap-4 shadow-2xl">
+            <div class="flex items-center gap-4">
+                <div class="bg-blue-600 p-3 rounded-2xl shadow-lg animate-pulse">📡</div>
+                <div>
+                    <h1 class="text-2xl font-black text-blue-400 uppercase italic leading-none">Swarm Analyzer Elite</h1>
+                    <p class="text-slate-400 text-[10px] uppercase font-bold tracking-tighter">Monitoreo de Competitividad y Posicionamiento</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-6">
+                <div class="bg-black p-2 rounded-xl border border-blue-500/50">
+                    <div id="aerial-grid" class="aerial-view"></div>
+                </div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <!-- Panel Izquierdo: Controles y Ranking -->
+            <div class="lg:col-span-3 space-y-4">
+                <div class="bg-slate-800 p-5 rounded-3xl shadow-xl border border-slate-700">
+                    <h3 class="text-[10px] font-black text-slate-400 uppercase mb-3 flex items-center gap-2">
+                        🎮 Centro de Mando
+                    </h3>
+                    <div class="space-y-3 mb-4">
+                        <select id="skill-selector" class="w-full bg-slate-900 border border-slate-600 p-3 rounded-xl text-xs outline-none focus:border-blue-500 text-white cursor-pointer">
+                            <option value="speed">⚡ Habilidad: Velocidad</option>
+                            <option value="perception">👁️ Habilidad: Percepción</option>
+                            <option value="explorer">🗺️ Habilidad: Explorador</option>
+                            <option value="memory">🧠 Habilidad: Memoria</option>
+                        </select>
+                        <button id="btn-add-robot" class="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-xl font-black shadow-lg shadow-blue-900/40 transition-all active:scale-95 text-xs uppercase">
+                            Desplegar Agente
+                        </button>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2 mb-4">
+                        <button id="btn-start" class="bg-green-600 hover:bg-green-700 py-3 rounded-xl font-black text-[10px] uppercase">Iniciar</button>
+                        <button id="btn-change-maze" class="bg-slate-700 hover:bg-slate-600 py-3 rounded-xl font-black text-[10px] uppercase border border-slate-600">Nuevo Mapa</button>
+                    </div>
+
+                    <!-- Restaurado: Control de velocidad para evitar el TypeError -->
+                    <div class="pt-2 border-t border-slate-700">
+                        <label class="text-[9px] uppercase font-bold text-slate-500 block mb-2">Velocidad del Motor</label>
+                        <input type="range" id="speed-slider" min="1" max="190" value="150" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500">
+                    </div>
+                </div>
+
+                <!-- RANKING -->
+                <div class="bg-slate-900 p-5 rounded-3xl shadow-xl border-2 border-yellow-500/30 flex flex-col h-[300px]">
+                    <h3 class="text-[10px] font-black text-yellow-400 uppercase mb-3 flex justify-between items-center">
+                        🏆 Clasificación Élite
+                        <span class="text-[8px] text-slate-500 italic">Basado en Eficiencia</span>
+                    </h3>
+                    <div class="rank-row font-black text-slate-500 border-b border-slate-700 pb-1 mb-1 text-[9px]">
+                        <span>POS</span>
+                        <span>AGENTE</span>
+                        <span class="text-right">PROM. PASOS</span>
+                    </div>
+                    <div id="ranking-list" class="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-1">
+                        <p class="text-[10px] text-slate-600 text-center mt-10">Esperando datos de misión...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Panel Central: Laberinto -->
+            <div class="lg:col-span-6 flex flex-col items-center">
+                <div class="relative inline-block p-1 bg-slate-700 rounded-2xl shadow-2xl">
+                    <div id="maze-container" class="maze-grid"></div>
+                </div>
+                
+                <div class="mt-6 w-full max-w-md bg-slate-800/80 p-5 rounded-3xl border border-slate-700/50 flex justify-around items-center">
+                    <div class="text-center">
+                        <span class="block text-slate-500 text-[10px] font-black uppercase mb-1">Mapa Explorado</span>
+                        <span id="map-percent" class="text-2xl font-black text-blue-400">0%</span>
+                    </div>
+                    <div class="h-10 w-px bg-slate-700"></div>
+                    <div class="text-center">
+                        <span class="block text-slate-500 text-[10px] font-black uppercase mb-1">Éxitos Swarm</span>
+                        <span id="win-count" class="text-2xl font-black text-green-400">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Panel Derecho: Localizador y Logs -->
+            <div class="lg:col-span-3 space-y-4">
+                <div class="bg-slate-800 p-5 rounded-3xl shadow-xl border border-slate-700 h-[250px] flex flex-col">
+                    <h3 class="text-[10px] font-black text-slate-400 uppercase mb-3">📍 Localizador GPS</h3>
+                    <div id="position-list" class="flex-1 overflow-y-auto pr-2 custom-scrollbar"></div>
+                </div>
+
+                <div class="bg-slate-800 rounded-3xl p-5 border border-slate-700 h-[330px] flex flex-col shadow-inner">
+                    <h3 class="text-[10px] font-black text-slate-400 uppercase mb-3 border-b border-slate-700 pb-2">📋 Log de Misión</h3>
+                    <div id="log-monitor" class="flex-1 overflow-y-auto font-mono text-[9px] space-y-1 pr-2 text-slate-400"></div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const GRID_SIZE = 10;
+        const CELL_SIZE = 40;
+        const goalPos = { x: 9, y: 9 };
+        let maze = [];
+        let qTable = {};
+        let robots = [];
+        let isRunning = false;
+        let stepDelay = 150;
+        let exploredCells = new Set();
+        let totalWins = 0;
+
+        class Robot {
+            constructor(id, skill) {
+                this.id = id;
+                this.skill = skill;
+                this.x = 0;
+                this.y = 0;
+                this.stepsTaken = 0;
+                this.wins = 0;
+                this.totalStepsAcrossWins = 0;
+                this.emoji = this.getSkillEmoji();
+                this.element = this.createUI();
+                this.reset();
+            }
+
+            getSkillEmoji() {
+                const map = { speed: '⚡', perception: '👁️', explorer: '🗺️', memory: '🧠' };
+                return map[this.skill] || '🤖';
+            }
+
+            createUI() {
+                const div = document.createElement('div');
+                div.className = 'robot';
+                div.style.width = `${CELL_SIZE}px`;
+                div.style.height = `${CELL_SIZE}px`;
+                div.innerHTML = `
+                    <div class="skill-tag">${this.skill}</div>
+                    <div class="robot-body">${this.emoji}</div>
+                `;
+                document.getElementById('maze-container').appendChild(div);
+                return div;
+            }
+
+            reset() {
+                this.x = 0;
+                this.y = 0;
+                this.stepsTaken = 0;
+                this.updateUI();
+            }
+
+            updateUI() {
+                this.element.style.transform = `translate(${this.x * CELL_SIZE}px, ${this.y * CELL_SIZE}px)`;
+                updatePositionList();
+            }
+
+            move() {
+                const skillSpeedBoost = (this.skill === 'speed') ? 2 : 1;
+                for(let i = 0; i < skillSpeedBoost; i++) {
+                    this._singleMove();
+                    if(this.x === goalPos.x && this.y === goalPos.y) break;
+                }
+            }
+
+            _singleMove() {
+                const state = `${this.x},${this.y}`;
+                const epsilon = 0.15; 
+                let action;
+
+                if (Math.random() < epsilon) {
+                    action = Math.floor(Math.random() * 4);
+                } else {
+                    const vals = qTable[state] || [0,0,0,0];
+                    const max = Math.max(...vals);
+                    const actions = vals.map((v, i) => v === max ? i : -1).filter(i => i !== -1);
+                    action = actions[Math.floor(Math.random() * actions.length)];
+                }
+
+                let nx = this.x, ny = this.y;
+                if (action === 0) ny--;
+                else if (action === 1) ny++;
+                else if (action === 2) nx--;
+                else if (action === 3) nx++;
+
+                this.stepsTaken++;
+                let reward = -0.01;
+                
+                const isWall = nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE || maze[ny][nx] === 1;
+                
+                if (isWall) {
+                    reward = (this.skill === 'perception') ? -0.5 : -5.0; 
+                } else {
+                    this.x = nx;
+                    this.y = ny;
+                    
+                    const posKey = `${this.x},${this.y}`;
+                    if (!exploredCells.has(posKey)) {
+                        exploredCells.add(posKey);
+                        reward = (this.skill === 'explorer') ? 20.0 : 5.0;
+                        updateMapUI(this.x, this.y);
+                    }
+
+                    if (this.x === goalPos.x && this.y === goalPos.y) {
+                        reward = 100.0;
+                        handleWin(this);
+                    }
+                }
+
+                const lr = (this.skill === 'memory') ? 0.7 : 0.25;
+                const nextState = `${this.x},${this.y}`;
+                const maxNextQ = qTable[nextState] ? Math.max(...qTable[nextState]) : 0;
+                if(qTable[state]) {
+                    qTable[state][action] += lr * (reward + 0.95 * maxNextQ - qTable[state][action]);
+                }
+                this.updateUI();
+            }
+        }
+
+        function initMaze(resetBrain = false) {
+            maze = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(0));
+            for(let i=0; i<28; i++) {
+                let rx = Math.floor(Math.random()*GRID_SIZE);
+                let ry = Math.floor(Math.random()*GRID_SIZE);
+                if((rx==0&&ry==0) || (rx==goalPos.x&&ry==goalPos.y)) continue;
+                maze[ry][rx] = 1;
+            }
+            exploredCells.clear();
+            renderMaze();
+            renderAerial();
+            if (resetBrain) initQTable();
+            robots.forEach(r => r.reset());
+            addLog("Sistema: Mapa regenerado.");
+        }
+
+        function initQTable() {
+            qTable = {};
+            for(let y=0; y<GRID_SIZE; y++) {
+                for(let x=0; x<GRID_SIZE; x++) {
+                    qTable[`${x},${y}`] = [0,0,0,0];
+                }
+            }
+        }
+
+        function renderMaze() {
+            const container = document.getElementById('maze-container');
+            container.style.gridTemplateColumns = `repeat(${GRID_SIZE}, ${CELL_SIZE}px)`;
+            const robotElements = Array.from(container.querySelectorAll('.robot'));
+            container.innerHTML = '';
+            for(let y=0; y<GRID_SIZE; y++) {
+                for(let x=0; x<GRID_SIZE; x++) {
+                    const div = document.createElement('div');
+                    div.id = `cell-${x}-${y}`;
+                    div.className = `cell ${maze[y][x] === 1 ? 'wall' : ''}`;
+                    if(x === goalPos.x && y === goalPos.y) div.innerHTML = '<span class="text-xl">🏆</span>';
+                    container.appendChild(div);
+                }
+            }
+            robotElements.forEach(re => container.appendChild(re));
+        }
+
+        function renderAerial() {
+            const aerial = document.getElementById('aerial-grid');
+            aerial.style.gridTemplateColumns = `repeat(${GRID_SIZE}, 1fr)`;
+            aerial.innerHTML = '';
+            for(let y=0; y<GRID_SIZE; y++) {
+                for(let x=0; x<GRID_SIZE; x++) {
+                    const p = document.createElement('div');
+                    p.id = `aerial-${x}-${y}`;
+                    p.className = 'aerial-pixel';
+                    p.style.background = maze[y][x] === 1 ? '#334155' : '#020617';
+                    aerial.appendChild(p);
+                }
+            }
+        }
+
+        function updateMapUI(x, y) {
+            const cell = document.getElementById(`cell-${x}-${y}`);
+            const pixel = document.getElementById(`aerial-${x}-${y}`);
+            if(cell) cell.classList.add('remembered');
+            if(pixel) pixel.style.background = '#3b82f6';
+            const totalWalkable = (GRID_SIZE * GRID_SIZE) - maze.flat().filter(v => v === 1).length;
+            const percent = Math.floor((exploredCells.size / totalWalkable) * 100);
+            document.getElementById('map-percent').textContent = percent + "%";
+        }
+
+        function updatePositionList() {
+            const list = document.getElementById('position-list');
+            if(!list) return;
+            list.innerHTML = '';
+            robots.forEach(r => {
+                const row = document.createElement('div');
+                row.className = 'pos-row border-b border-slate-700/50 py-2';
+                row.innerHTML = `
+                    <span class="font-bold text-blue-400">#${r.id} ${r.emoji}</span>
+                    <span class="text-slate-300 font-mono">X:${r.x} Y:${r.y}</span>
+                    <span class="text-[9px] text-slate-500 uppercase">${r.skill}</span>
+                `;
+                list.appendChild(row);
+            });
+        }
+
+        function updateRanking() {
+            const list = document.getElementById('ranking-list');
+            if(!list) return;
+            const contenders = robots.filter(r => r.wins > 0);
+            contenders.sort((a, b) => (a.totalStepsAcrossWins / a.wins) - (b.totalStepsAcrossWins / b.wins));
+
+            if(contenders.length === 0) return;
+
+            list.innerHTML = '';
+            contenders.forEach((r, index) => {
+                const avg = (r.totalStepsAcrossWins / r.wins).toFixed(1);
+                const medal = index === 0 ? '🥇' : (index === 1 ? '🥈' : (index === 2 ? '🥉' : ''));
+                const color = index === 0 ? 'gold' : (index === 1 ? 'silver' : (index === 2 ? 'bronze' : 'text-slate-400'));
+
+                const row = document.createElement('div');
+                row.className = `rank-row ${index === 0 ? 'bg-yellow-500/10' : 'bg-slate-800/40'} rounded-lg px-2 my-1 border-l-4 ${index === 0 ? 'border-yellow-500' : 'border-transparent'}`;
+                row.innerHTML = `
+                    <span class="font-black ${color}">${medal || (index + 1)}</span>
+                    <span class="font-bold">#${r.id} ${r.emoji} <span class="text-[8px] opacity-50 uppercase">${r.skill}</span></span>
+                    <span class="text-right font-mono font-bold ${color}">${avg}</span>
+                `;
+                list.appendChild(row);
+            });
+        }
+
+        function handleWin(robot) {
+            totalWins++;
+            robot.wins++;
+            robot.totalStepsAcrossWins += robot.stepsTaken;
+            document.getElementById('win-count').textContent = totalWins;
+            addLog(`Bot #${robot.id} (${robot.skill}) ¡META! en ${robot.stepsTaken} pasos.`);
+            updateRanking();
+            robot.reset();
+        }
+
+        function addLog(msg) {
+            const monitor = document.getElementById('log-monitor');
+            if(!monitor) return;
+            const entry = document.createElement('div');
+            entry.className = "border-l-2 border-slate-600 pl-2 mb-1 py-1 bg-slate-700/20 rounded-r";
+            entry.textContent = `> ${msg}`;
+            monitor.prepend(entry);
+            if(monitor.children.length > 50) monitor.removeChild(monitor.lastChild);
+        }
+
+        function gameLoop() {
+            if(!isRunning) return;
+            robots.forEach(r => r.move());
+            setTimeout(gameLoop, 200 - stepDelay);
+        }
+
+        // Listeners con validación de existencia para evitar TypeError
+        const btnAdd = document.getElementById('btn-add-robot');
+        if(btnAdd) btnAdd.addEventListener('click', () => {
+            const skill = document.getElementById('skill-selector').value;
+            const r = new Robot(robots.length + 1, skill);
+            robots.push(r);
+            updatePositionList();
+            addLog(`Sistema: Agente #${r.id} desplegado (${skill}).`);
+        });
+
+        const btnChange = document.getElementById('btn-change-maze');
+        if(btnChange) btnChange.addEventListener('click', () => initMaze(false));
+
+        const btnStart = document.getElementById('btn-start');
+        if(btnStart) btnStart.addEventListener('click', function() {
+            if(robots.length === 0) return addLog("Aviso: Primero despliega un robot.");
+            isRunning = !isRunning;
+            this.textContent = isRunning ? "Pausar" : "Iniciar";
+            this.className = isRunning ? "bg-orange-600 hover:bg-orange-700 py-3 rounded-xl font-black text-[10px] uppercase" : "bg-green-600 hover:bg-green-700 py-3 rounded-xl font-black text-[10px] uppercase";
+            if(isRunning) gameLoop();
+        });
+
+        const speedSlider = document.getElementById('speed-slider');
+        if(speedSlider) speedSlider.addEventListener('input', (e) => stepDelay = e.target.value);
+
+        // Inicialización
+        window.onload = () => initMaze(true);
+    </script>
+</body>
+</html>
